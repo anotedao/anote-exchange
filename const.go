@@ -10,4 +10,6 @@ const (
 	BidStep = 1000000
 
 	MULTI8 = 100000000
+
+	SeedWordsURL = "https://raw.githubusercontent.com/bitcoin/bips/master/bip-0039/english.txt"
 )

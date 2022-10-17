@@ -12,6 +12,7 @@ func initMacaron() *macaron.Macaron {
 	m.Use(macaron.Renderer())
 
 	m.Get("/calculate/:from/:to/:amount", calculateView)
+	m.Get("/trade/:from/:to/:amount/:type/:address", tradeView)
 
 	return m
 }

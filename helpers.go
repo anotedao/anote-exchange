@@ -76,14 +76,40 @@ type CalculateResponse struct {
 }
 
 func calculateInstant(amount float64, from string, to string) float64 {
-	return 0
+	obr := getOrderBook()
+	amount2 := float64(0)
+	amountInt := int64(amount) * MULTI8
+
+	if from == "anote" {
+		for _, bid := range obr.Bids {
+			if amountInt >= bid.Amount {
+				amountInt -= bid.Amount
+				amount2 += float64(bid.Amount) / float64(MULTI8) * float64(bid.Price)
+			} else {
+				amount2 += float64(amountInt) / float64(MULTI8) * float64(bid.Price)
+				amountInt = 0
+			}
+		}
+	} else if from == "waves" {
+		for _, ask := range obr.Asks {
+			askAmount := ask.Amount * int64(ask.Price) / MULTI8
+			if amountInt >= askAmount {
+				amountInt -= askAmount
+				amount2 += float64(ask.Amount)
+			} else {
+				amount2 += float64(amountInt) * float64(ask.Price) / MULTI8
+				amountInt = 0
+			}
+		}
+	}
+
+	return float64(amount2) / MULTI8
 }
 
 func calculateDelay(amount float64, from string, to string) float64 {
 	obr := getOrderBook()
 
 	if from == "anote" {
-		log.Println(obr.Asks[0].Price - AskStep)
 		amount2 := float64(obr.Asks[0].Price-AskStep) / float64(MULTI8) * amount
 		return math.Floor(amount2*MULTI8) / MULTI8
 	} else if from == "waves" {

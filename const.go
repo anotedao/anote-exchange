@@ -7,7 +7,7 @@ const (
 
 	AskStep = 1
 
-	BidStep = 10000000
+	BidStep = 1000000
 
 	MULTI8 = 100000000
 )

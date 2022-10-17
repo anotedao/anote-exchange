@@ -23,5 +23,6 @@ func calculateView(ctx *macaron.Context) {
 	cr.ResultInstant = calculateInstant(amount, from, to)
 	cr.ResultDelay = calculateDelay(amount, from, to)
 
+	ctx.Resp.Header().Add("Access-Control-Allow-Origin", "*")
 	ctx.JSON(200, cr)
 }

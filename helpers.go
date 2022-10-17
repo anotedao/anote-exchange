@@ -97,13 +97,15 @@ func calculateInstant(amount float64, from string, to string) float64 {
 				amountInt -= askAmount
 				amount2 += float64(ask.Amount)
 			} else {
-				amount2 += float64(amountInt) * float64(ask.Price) / MULTI8
+				amount2 += float64(amountInt * MULTI8 / int64(ask.Price))
 				amountInt = 0
 			}
 		}
 	}
 
-	return float64(amount2) / MULTI8
+	amount2 /= MULTI8
+
+	return math.Floor(amount2*MULTI8) / MULTI8
 }
 
 func calculateDelay(amount float64, from string, to string) float64 {

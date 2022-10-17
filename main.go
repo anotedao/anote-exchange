@@ -9,8 +9,9 @@ import (
 var m *macaron.Macaron
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	m = initMacaron()
-	log.Println("Test.")
 
 	m.Run("127.0.0.1", Port)
 }

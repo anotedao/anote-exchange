@@ -22,7 +22,7 @@ func initDb() *gorm.DB {
 		// logTelegram(err.Error())
 	}
 
-	if err := db.AutoMigrate(&Trade{}); err != nil {
+	if err := db.AutoMigrate(&Trade{}, &Transaction{}); err != nil {
 		panic(err.Error())
 	}
 

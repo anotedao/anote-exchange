@@ -18,5 +18,7 @@ func main() {
 
 	db = initDb()
 
+	initMonitor()
+
 	m.Run("127.0.0.1", Port)
 }

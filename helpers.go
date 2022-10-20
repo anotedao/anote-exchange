@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,10 +11,13 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/anonutopia/gowaves"
 	"github.com/mr-tron/base58"
 	wavesplatform "github.com/wavesplatform/go-lib-crypto"
+	"github.com/wavesplatform/gowaves/pkg/client"
 	"github.com/wavesplatform/gowaves/pkg/crypto"
 	"github.com/wavesplatform/gowaves/pkg/proto"
 )
@@ -199,16 +203,220 @@ func generateSeed() (seed string, encoded string) {
 	return seed, encoded
 }
 
-func generateKeysAddress(seed string) (public string, private string, address string) {
+func generateKeysAddress(seed string, from string) (public string, private string, address string) {
 	c := wavesplatform.NewWavesCrypto()
 	sd := wavesplatform.Seed(seed)
 	pair := c.KeyPair(sd)
+	var a proto.WavesAddress
+	var err error
 
 	pk := crypto.MustPublicKeyFromBase58(string(pair.PublicKey))
-	a, err := proto.NewAddressFromPublicKey(55, pk)
+	if from == "anote" {
+		a, err = proto.NewAddressFromPublicKey(55, pk)
+	} else {
+		a, err = proto.NewAddressFromPublicKey(proto.MainNetScheme, pk)
+	}
 	if err != nil {
 		log.Println(err.Error())
 	}
 
 	return string(pair.PublicKey), string(pair.PrivateKey), a.String()
+}
+
+func purchaseAsset(amountAsset uint64, amountWaves uint64, assetId string, price uint64, seed string) error {
+	// if conf.Dev || conf.Debug {
+	// 	return errors.New(fmt.Sprintf("Not purchasing asset (dev): %d - %d - %s - %d", amountAsset, amountWaves, assetId, price))
+	// }
+
+	var assetBytes []byte
+
+	pubKey, privKey, _ := generateKeysAddress(seed, "waves")
+
+	// Create sender's public key from BASE58 string
+	sender, err := crypto.NewPublicKeyFromBase58(pubKey)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	matcher, err := crypto.NewPublicKeyFromBase58(MatcherPublicKey)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	// Create sender's private key from BASE58 string
+	sk, err := crypto.NewSecretKeyFromBase58(privKey)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	// Current time in milliseconds
+	ts := time.Now().Unix() * 1000
+	ets := time.Now().Add(time.Hour*24*29).Unix() * 1000
+
+	if len(assetId) > 0 {
+		assetBytes = crypto.MustBytesFromBase58(assetId)
+	} else {
+		assetBytes = []byte{}
+	}
+
+	asset, err := proto.NewOptionalAssetFromBytes(assetBytes)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	assetW, err := proto.NewOptionalAssetFromString("")
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	bo := proto.NewUnsignedOrderV1(sender, matcher, *asset, *assetW, proto.Buy, price, amountAsset, uint64(ts), uint64(ets), WavesExchangeFee)
+
+	err = bo.Sign(proto.MainNetScheme, sk)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	_, err = gowaves.WMC.OrderbookMarketAlt(bo)
+	// _, err = gowaves.WMC.OrderbookAlt(bo)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func getTransactions(address string) []proto.Transaction {
+	baseUrl := ""
+
+	if strings.HasPrefix(address, "3A") {
+		baseUrl = AnoteNodeURL
+	} else {
+		baseUrl = WavesNodeURL
+	}
+
+	cl, err := client.NewClient(client.Options{BaseUrl: baseUrl, Client: &http.Client{}})
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		// return err
+	}
+
+	// Context to cancel the request execution on timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	addr := proto.MustAddressFromString(address)
+
+	transactions, _, err := cl.Transactions.Address(ctx, addr, 10)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		// return err
+	}
+
+	return transactions
+}
+
+func sendAsset(amount uint64, assetId string, recipient string, seed string) error {
+	var networkByte byte
+	var nodeURL string
+	var att proto.Attachment
+	var err error
+
+	pubKey, privKey, _ := generateKeysAddress(seed, "waves")
+
+	if strings.HasPrefix(recipient, "3A") {
+		att, err = proto.NewAttachmentFromBase58(base58.Encode([]byte(recipient)))
+		if err != nil {
+			log.Println(err)
+		}
+		recipient = GatewayWaves
+		networkByte = proto.MainNetScheme
+		nodeURL = WavesNodeURL
+	}
+
+	// Create sender's public key from BASE58 string
+	sender, err := crypto.NewPublicKeyFromBase58(pubKey)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	// Create sender's private key from BASE58 string
+	sk, err := crypto.NewSecretKeyFromBase58(privKey)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	// Current time in milliseconds
+	ts := time.Now().Unix() * 1000
+
+	asset, err := proto.NewOptionalAssetFromString(assetId)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	assetW, err := proto.NewOptionalAssetFromString("")
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	rec, err := proto.NewAddressFromString(recipient)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	tr := proto.NewUnsignedTransferWithSig(sender, *asset, *assetW, uint64(ts), amount, WavesFee, proto.Recipient{Address: &rec}, att)
+
+	err = tr.Sign(networkByte, sk)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	// Create new HTTP client to send the transaction to public TestNet nodes
+	client, err := client.NewClient(client.Options{BaseUrl: nodeURL, Client: &http.Client{}})
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	// Context to cancel the request execution on timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// // Send the transaction to the network
+	_, err = client.Transactions.Broadcast(ctx, tr)
+	if err != nil {
+		log.Println(err)
+		// logTelegram(err.Error())
+		return err
+	}
+
+	return nil
 }

@@ -24,7 +24,7 @@ func newTrade(from string, to string, amount uint64, ttype string, address strin
 		t.AddressUser = address
 		t.Type = ttype
 		t.Seed, _ = generateSeed()
-		_, _, t.AddressExchange = generateKeysAddress(t.Seed)
+		_, _, t.AddressExchange = generateKeysAddress(t.Seed, from)
 		t.From = from
 		t.To = to
 
@@ -32,4 +32,10 @@ func newTrade(from string, to string, amount uint64, ttype string, address strin
 	}
 
 	return t
+}
+
+type Transaction struct {
+	gorm.Model
+	TxID      string `gorm:"size:255;uniqueIndex"`
+	Processed bool   `gorm:"DEFAULT:false"`
 }

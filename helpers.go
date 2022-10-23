@@ -88,19 +88,22 @@ type CalculateResponse struct {
 	ResultDelay   float64 `json:"result_delay"`
 }
 
-func calculateInstant(amount float64, from string, to string) float64 {
+func calculateInstant(amount float64, from string) (float64, int) {
 	obr := getOrderBook()
 	amount2 := float64(0)
 	amountInt := int64(amount) * MULTI8
+	price := 0
 
 	if from == "anote" {
 		for _, bid := range obr.Bids {
 			if amountInt >= bid.Amount {
 				amountInt -= bid.Amount
 				amount2 += float64(bid.Amount) / float64(MULTI8) * float64(bid.Price)
+				price = bid.Price
 			} else {
 				amount2 += float64(amountInt) / float64(MULTI8) * float64(bid.Price)
 				amountInt = 0
+				price = bid.Price
 			}
 		}
 	} else if from == "waves" {
@@ -109,16 +112,18 @@ func calculateInstant(amount float64, from string, to string) float64 {
 			if amountInt >= askAmount {
 				amountInt -= askAmount
 				amount2 += float64(ask.Amount)
+				price = ask.Price
 			} else {
 				amount2 += float64(amountInt * MULTI8 / int64(ask.Price))
 				amountInt = 0
+				price = ask.Price
 			}
 		}
 	}
 
 	amount2 /= MULTI8
 
-	return math.Floor(amount2*MULTI8) / MULTI8
+	return math.Floor(amount2*MULTI8) / MULTI8, price
 }
 
 func calculateDelay(amount float64, from string, to string) float64 {
@@ -207,15 +212,9 @@ func generateKeysAddress(seed string, from string) (public string, private strin
 	c := wavesplatform.NewWavesCrypto()
 	sd := wavesplatform.Seed(seed)
 	pair := c.KeyPair(sd)
-	var a proto.WavesAddress
-	var err error
 
 	pk := crypto.MustPublicKeyFromBase58(string(pair.PublicKey))
-	if from == "anote" {
-		a, err = proto.NewAddressFromPublicKey(55, pk)
-	} else {
-		a, err = proto.NewAddressFromPublicKey(proto.MainNetScheme, pk)
-	}
+	a, err := proto.NewAddressFromPublicKey(proto.MainNetScheme, pk)
 	if err != nil {
 		log.Println(err.Error())
 	}
@@ -223,12 +222,13 @@ func generateKeysAddress(seed string, from string) (public string, private strin
 	return string(pair.PublicKey), string(pair.PrivateKey), a.String()
 }
 
-func purchaseAsset(amountAsset uint64, amountWaves uint64, assetId string, price uint64, seed string) error {
+func purchaseAsset(amountAsset uint64, amountWaves uint64, from string, price uint64, seed string) error {
 	// if conf.Dev || conf.Debug {
 	// 	return errors.New(fmt.Sprintf("Not purchasing asset (dev): %d - %d - %s - %d", amountAsset, amountWaves, assetId, price))
 	// }
 
 	var assetBytes []byte
+	var orderType proto.OrderType
 
 	pubKey, privKey, _ := generateKeysAddress(seed, "waves")
 
@@ -259,11 +259,7 @@ func purchaseAsset(amountAsset uint64, amountWaves uint64, assetId string, price
 	ts := time.Now().Unix() * 1000
 	ets := time.Now().Add(time.Hour*24*29).Unix() * 1000
 
-	if len(assetId) > 0 {
-		assetBytes = crypto.MustBytesFromBase58(assetId)
-	} else {
-		assetBytes = []byte{}
-	}
+	assetBytes = crypto.MustBytesFromBase58(TokenID)
 
 	asset, err := proto.NewOptionalAssetFromBytes(assetBytes)
 	if err != nil {
@@ -279,7 +275,13 @@ func purchaseAsset(amountAsset uint64, amountWaves uint64, assetId string, price
 		return err
 	}
 
-	bo := proto.NewUnsignedOrderV1(sender, matcher, *asset, *assetW, proto.Buy, price, amountAsset, uint64(ts), uint64(ets), WavesExchangeFee)
+	if from == "waves" {
+		orderType = proto.Buy
+	} else {
+		orderType = proto.Sell
+	}
+
+	bo := proto.NewUnsignedOrderV1(sender, matcher, *asset, *assetW, orderType, price, amountAsset, uint64(ts), uint64(ets), WavesExchangeFee)
 
 	err = bo.Sign(proto.MainNetScheme, sk)
 	if err != nil {
@@ -419,4 +421,123 @@ func sendAsset(amount uint64, assetId string, recipient string, seed string) err
 	}
 
 	return nil
+}
+
+func borrowFee(seed string) {
+	networkByte := proto.MainNetScheme
+	nodeURL := WavesNodeURL
+
+	_, _, recipient := generateKeysAddress(seed, "waves")
+
+	// Create sender's public key from BASE58 string
+	sender, err := crypto.NewPublicKeyFromBase58(conf.PublicKey)
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Create sender's private key from BASE58 string
+	sk, err := crypto.NewSecretKeyFromBase58(conf.PrivateKey)
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Current time in milliseconds
+	ts := time.Now().Unix() * 1000
+
+	assetW, err := proto.NewOptionalAssetFromString("")
+	if err != nil {
+		log.Println(err)
+	}
+
+	rec, err := proto.NewAddressFromString(recipient)
+	if err != nil {
+		log.Println(err)
+	}
+
+	amount := uint64(WavesExchangeFee)
+
+	tr := proto.NewUnsignedTransferWithSig(sender, *assetW, *assetW, uint64(ts), amount, WavesFee, proto.Recipient{Address: &rec}, nil)
+
+	err = tr.Sign(networkByte, sk)
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Create new HTTP client to send the transaction to public TestNet nodes
+	client, err := client.NewClient(client.Options{BaseUrl: nodeURL, Client: &http.Client{}})
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Context to cancel the request execution on timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// // Send the transaction to the network
+	_, err = client.Transactions.Broadcast(ctx, tr)
+	if err != nil {
+		log.Println(err)
+	}
+}
+
+func returnFee(seed string) {
+	networkByte := proto.MainNetScheme
+	nodeURL := WavesNodeURL
+
+	pubKey, privKey, _ := generateKeysAddress(seed, "waves")
+
+	// Create sender's public key from BASE58 string
+	sender, err := crypto.NewPublicKeyFromBase58(pubKey)
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Create sender's private key from BASE58 string
+	sk, err := crypto.NewSecretKeyFromBase58(privKey)
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Current time in milliseconds
+	ts := time.Now().Unix() * 1000
+
+	assetW, err := proto.NewOptionalAssetFromString("")
+	if err != nil {
+		log.Println(err)
+	}
+
+	recPk, err := crypto.NewPublicKeyFromBase58(conf.PublicKey)
+	if err != nil {
+		log.Println(err)
+	}
+
+	rec, err := proto.NewAddressFromPublicKey(networkByte, recPk)
+	if err != nil {
+		log.Println(err)
+	}
+
+	amount := uint64(WavesExchangeFee)
+
+	tr := proto.NewUnsignedTransferWithSig(sender, *assetW, *assetW, uint64(ts), amount, WavesFee, proto.Recipient{Address: &rec}, nil)
+
+	err = tr.Sign(networkByte, sk)
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Create new HTTP client to send the transaction to public TestNet nodes
+	client, err := client.NewClient(client.Options{BaseUrl: nodeURL, Client: &http.Client{}})
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Context to cancel the request execution on timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// // Send the transaction to the network
+	_, err = client.Transactions.Broadcast(ctx, tr)
+	if err != nil {
+		log.Println(err)
+	}
 }

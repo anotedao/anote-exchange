@@ -60,20 +60,52 @@ func (m *Monitor) processTransaction(tr *Transaction, t *TransferTransaction, tr
 }
 
 func (m *Monitor) purchaseAsset(t *TransferTransaction, trade *Trade) {
-	waves := t.Amount - 2*WavesFee - WavesExchangeFee
+	if trade.From == "waves" {
+		waves := t.Amount - 2*WavesFee - WavesExchangeFee
+		if waves > 0 {
+			a, p := m.calculateAssetAmount(uint64(waves))
+			abr, err := gowaves.WNC.AddressesBalance(trade.AddressExchange)
+			if err == nil {
+				nabr, _ := gowaves.WNC.AddressesBalance(trade.AddressExchange)
+				if purchaseAsset(a, uint64(waves), trade.From, p, trade.Seed) == nil {
+					for abr.Balance == nabr.Balance {
+						time.Sleep(time.Second * 10)
+						nabr, _ = gowaves.WNC.AddressesBalance(trade.AddressExchange)
+					}
 
-	if waves > 0 {
-		a, p := m.calculateAssetAmount(uint64(waves))
-		abr, err := gowaves.WNC.AddressesBalance(trade.AddressExchange)
-		if err == nil {
-			nabr, _ := gowaves.WNC.AddressesBalance(trade.AddressExchange)
-			if purchaseAsset(a, uint64(waves), TokenID, p, trade.Seed) == nil {
-				for abr.Balance == nabr.Balance {
+					sendAsset(a, TokenID, trade.AddressUser, trade.Seed)
+				}
+			}
+		}
+	} else {
+		amf, p := calculateInstant(float64(t.Amount)/float64(MULTI8), trade.From)
+		amount := uint64(amf * MULTI8)
+		if amount > 0 {
+			abrb, err := gowaves.WNC.AddressesBalance(trade.AddressExchange)
+			if err == nil {
+				nabrb, _ := gowaves.WNC.AddressesBalance(trade.AddressExchange)
+
+				borrowFee(trade.Seed)
+
+				for abrb.Balance == nabrb.Balance {
 					time.Sleep(time.Second * 10)
-					nabr, _ = gowaves.WNC.AddressesBalance(trade.AddressExchange)
+					nabrb, _ = gowaves.WNC.AddressesBalance(trade.AddressExchange)
 				}
 
-				sendAsset(a, TokenID, trade.AddressUser, trade.Seed)
+				abr, err := gowaves.WNC.AssetsBalance(trade.AddressExchange, TokenID)
+				if err == nil {
+					nabr, _ := gowaves.WNC.AssetsBalance(trade.AddressExchange, TokenID)
+					if purchaseAsset(t.Amount, amount, trade.From, uint64(p), trade.Seed) == nil {
+						for abr.Balance == nabr.Balance {
+							time.Sleep(time.Second * 10)
+							nabr, _ = gowaves.WNC.AssetsBalance(trade.AddressExchange, TokenID)
+						}
+
+						returnFee(trade.Seed)
+
+						sendAsset(uint64(amount-WavesExchangeFee-2*WavesFee), "", trade.AddressUser, trade.Seed)
+					}
+				}
 			}
 		}
 	}
@@ -125,7 +157,7 @@ type TransferTransaction struct {
 	AssetID         interface{} `json:"assetId"`
 	FeeAssetID      interface{} `json:"feeAssetId"`
 	Timestamp       int64       `json:"timestamp"`
-	Amount          int         `json:"amount"`
+	Amount          uint64      `json:"amount"`
 	Fee             int         `json:"fee"`
 	Recipient       string      `json:"recipient"`
 }

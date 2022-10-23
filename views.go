@@ -20,7 +20,7 @@ func calculateView(ctx *macaron.Context) {
 		cr.Error = err.Error()
 	}
 
-	cr.ResultInstant = calculateInstant(amount, from, to)
+	cr.ResultInstant, _ = calculateInstant(amount, from)
 	cr.ResultDelay = calculateDelay(amount, from, to)
 
 	ctx.Resp.Header().Add("Access-Control-Allow-Origin", "*")

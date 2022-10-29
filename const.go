@@ -24,7 +24,7 @@ const (
 	TokenID = "7AcLk4rV8yZ3rEUyzYHutgVyKR5GYjPFz2MGKCrHnN25"
 
 	// AnoteNodeURL is an URL for Anote Node
-	AnoteNodeURL = "https://nodes.anote.digital"
+	AnoteNodeURL = "http://localhost:6869"
 
 	// WavesNodeURL is an URL for Waves Node
 	WavesNodeURL = "https://nodes.wavesnodes.com"
